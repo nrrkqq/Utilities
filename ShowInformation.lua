@@ -21,14 +21,11 @@ Outline.Visible = false
 Outline.ZIndex = 10
 Outline.Parent = Library.Holder.Instance
 
-Library:AddToTheme(Outline, { BackgroundColor3 = "Window Background" })
-
 do
 	local s = Instance.new("UIStroke", Outline)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.LineJoinMode = Enum.LineJoinMode.Miter
 	s.Color = Library.Theme["Border"]
-	Library:AddToTheme(s, { Color = "Border" })
 end
 
 local Liner = Instance.new("Frame", Outline)
@@ -37,7 +34,6 @@ Liner.Size = UDim2.new(1, 0, 0, 2)
 Liner.BorderSizePixel = 0
 Liner.BackgroundColor3 = Library.Theme["Accent"]
 Liner.ZIndex = 11
-Library:AddToTheme(Liner, { BackgroundColor3 = "Accent" })
 
 do
 	local g = Instance.new("UIGradient", Liner)
@@ -59,7 +55,6 @@ TitleLabel.Text = "Target Information"
 TitleLabel.TextColor3 = Library.Theme["Text"]
 TitleLabel.FontFace = Library.Font or Font.fromEnum(Enum.Font.SourceSans)
 TitleLabel.ZIndex = 11
-Library:AddToTheme(TitleLabel, { TextColor3 = "Text" })
 
 local Inline = Instance.new("Frame", Outline)
 Inline.Name = "Inline"
@@ -68,14 +63,12 @@ Inline.Size = UDim2.new(1, -10, 1, -27)
 Inline.BackgroundColor3 = Library.Theme["Inline"]
 Inline.BorderSizePixel = 0
 Inline.ZIndex = 11
-Library:AddToTheme(Inline, { BackgroundColor3 = "Inline" })
 
 do
 	local s = Instance.new("UIStroke", Inline)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.LineJoinMode = Enum.LineJoinMode.Miter
 	s.Color = Library.Theme["Outline"]
-	Library:AddToTheme(s, { Color = "Outline" })
 end
 
 local Avatar = Instance.new("ImageLabel", Inline)
@@ -87,14 +80,12 @@ Avatar.BorderSizePixel = 0
 Avatar.ScaleType = Enum.ScaleType.Fit
 Avatar.Image = "rbxassetid://5205790785"
 Avatar.ZIndex = 12
-Library:AddToTheme(Avatar, { BackgroundColor3 = "Element" })
 
 do
 	local s = Instance.new("UIStroke", Avatar)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.LineJoinMode = Enum.LineJoinMode.Miter
 	s.Color = Library.Theme["Border"]
-	Library:AddToTheme(s, { Color = "Border" })
 
 	local c = Instance.new("UICorner", Avatar)
 	c.CornerRadius = UDim.new(0, 2)
@@ -112,7 +103,6 @@ local function MakeLabel(parent, yOffset, defaultText)
 	lbl.FontFace = Library.Font or Font.fromEnum(Enum.Font.SourceSans)
 	lbl.TextTruncate = Enum.TextTruncate.AtEnd
 	lbl.ZIndex = 12
-	Library:AddToTheme(lbl, { TextColor3 = "Text" })
 	return lbl
 end
 
@@ -130,14 +120,12 @@ HealthTrack.Size = UDim2.new(1, -12, 0, 8)
 HealthTrack.BackgroundColor3 = Library.Theme["Element"]
 HealthTrack.BorderSizePixel = 0
 HealthTrack.ZIndex = 12
-Library:AddToTheme(HealthTrack, { BackgroundColor3 = "Element" })
 
 do
 	local s = Instance.new("UIStroke", HealthTrack)
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	s.LineJoinMode = Enum.LineJoinMode.Miter
 	s.Color = Library.Theme["Outline"]
-	Library:AddToTheme(s, { Color = "Outline" })
 end
 
 local HealthFill = Instance.new("Frame", HealthTrack)
