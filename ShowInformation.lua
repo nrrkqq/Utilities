@@ -3,7 +3,6 @@
 
 local RunService = game:GetService("RunService")
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/nrrkqq/Utopia/refs/heads/main/Utopia.lua"))()
-	or nil
 
 local Green = Color3.fromRGB(198, 255, 198)
 local Red = Color3.fromRGB(255, 85, 85)
@@ -164,7 +163,7 @@ function InformationWindow:Show(Player)
 	local userId = Player.UserId
 	local thumbType = Enum.ThumbnailType.HeadShot
 	local thumbSize = Enum.ThumbnailSize.Size180x180
-	local content, isReady = Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
+	local content, isReady = Player:GetUserThumbnailAsync(userId, thumbType, thumbSize)
 
 	if GetFlag("HidePlayerNames") then
 		userId = 0
