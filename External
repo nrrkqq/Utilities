@@ -1,0 +1,85 @@
+--!optimize 2
+
+local Offsets = {
+	Position = 0xb4,
+}
+
+local WritePosition = function(Part: Instance?, Position: Vector3)
+	if Part then
+		memory.writevector(Part, Offsets.Position, Position) -- folkk
+
+		return true
+	end
+	return false
+end
+
+local Workspace = game:GetService("Workspace")
+
+local PlayerCharacters = Workspace:WaitForChild("PlayerCharacters")
+local LocalPlayer = game:GetService("Players").LocalPlayer
+
+local PlayerCharacter = PlayerCharacters:WaitForChild(LocalPlayer.Name)
+
+local function GetDmgPoints(Character: Instance)
+	local DmgPoints = {}
+
+	if not Character then
+		return DmgPoints
+	end
+
+	for _, Tool in Character:GetChildren() do
+		if Tool.ClassName == "Tool" and Tool.Parent == Character then
+			for _, v in Tool:GetDescendants() do
+				if v.Name == "DmgPoint" then
+					table.insert(DmgPoints, v)
+				end
+			end
+		end
+	end
+
+	return DmgPoints
+end
+
+local function DistributeAttachmentsInRectangle(Attachments, Spacing, Dimensions) -- old asfuck func
+	local NumAttachments = #Attachments
+	local xLength = Dimensions.x
+	local yLength = Dimensions.y
+	local zLength = Dimensions.z
+
+	local HalfSizeX = (xLength - 1) * Spacing / 2
+	local HalfSizeY = (yLength - 1) * Spacing / 2
+	local HalfSizeZ = (zLength - 1) * Spacing / 2
+
+	local AttachmentIndex = 1
+
+	for x = 0, xLength - 1 do
+		for y = 0, yLength - 1 do
+			for z = 0, zLength - 1 do
+				if AttachmentIndex <= NumAttachments then
+					local Position =
+						Vector3.new(x * Spacing - HalfSizeX, y * Spacing - HalfSizeY, z * Spacing - HalfSizeZ)
+
+					WritePosition(Attachments[AttachmentIndex], Position)
+
+					AttachmentIndex = AttachmentIndex + 1
+				else
+					break
+				end
+			end
+		end
+	end
+end
+
+local Spacing = 2.75
+local Dimensions = Vector3.new(3, 9, 2)
+
+task.spawn(function()
+	while task.wait(0.1) do
+		PlayerCharacter = PlayerCharacters:FindFirstChild(LocalPlayer.Name) or PlayerCharacter
+
+		local DmgPoints = GetDmgPoints(PlayerCharacter)
+		if #DmgPoints > 0 then
+			DistributeAttachmentsInRectangle(DmgPoints, Spacing, Dimensions)
+		end
+	end
+end)
