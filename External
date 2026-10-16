@@ -1,85 +1,171 @@
 --!optimize 2
 
-local Offsets = {
-	Position = 0xb4,
-}
+--!nolint UnknownGlobal
+--!nocheck
 
-local WritePosition = function(Part: Instance?, Position: Vector3)
-	if Part then
-		memory.writevector(Part, Offsets.Position, Position) -- folkk
+local Visualizer = true
 
-		return true
-	end
-	return false
-end
-
+local Write = memory.writevector
 local Workspace = game:GetService("Workspace")
 
-local PlayerCharacters = Workspace:WaitForChild("PlayerCharacters")
-local LocalPlayer = game:GetService("Players").LocalPlayer
+local Offset = nil
 
-local PlayerCharacter = PlayerCharacters:WaitForChild(LocalPlayer.Name)
+do
+	local Version = game:GetClientVersion()
+	local Url = "https://offsets.imtheo.lol/" .. Version .. "/offsets.txt"
 
-local function GetDmgPoints(Character: Instance)
-	local DmgPoints = {}
-
-	if not Character then
-		return DmgPoints
+	for attempt = 1, 3 do
+		local ok, body = pcall(game.HttpGet, game, Url)
+		if ok and type(body) == "string" then
+			local hex = string.match(body, "Attachment::Position%s*=%s*(0x%x+)")
+			Offset = hex and tonumber(hex)
+			if Offset then
+				break
+			end
+		end
+		task.wait(1)
 	end
 
-	for _, Tool in Character:GetChildren() do
-		if Tool.ClassName == "Tool" and Tool.Parent == Character then
+	if not Offset then
+		warn("Could not fetch Attachment::Position for version " .. Version)
+
+		return
+	end
+end
+
+local PlayerCharacters = Workspace:WaitForChild("PlayerCharacters")
+local Name = game:GetService("Players").LocalPlayer.Name
+local Character = PlayerCharacters:WaitForChild(Name)
+
+local Spacing = 2.8
+local DimX, DimY, DimZ = 3, 9, 2
+
+local Positions, PX, PY, PZ, Max = {}, {}, {}, {}, 0
+do
+	local HalfX = (DimX - 1) * Spacing / 2
+	local HalfY = (DimY - 1) * Spacing / 2
+	local HalfZ = (DimZ - 1) * Spacing / 2
+	for x = 0, DimX - 1 do
+		for y = 0, DimY - 1 do
+			for z = 0, DimZ - 1 do
+				Max += 1
+				local px, py, pz = x * Spacing - HalfX, y * Spacing - HalfY, z * Spacing - HalfZ
+				Positions[Max] = Vector3.new(px, py, pz)
+				PX[Max], PY[Max], PZ[Max] = px, py, pz
+			end
+		end
+	end
+end
+
+local Parents, PointCount = {}, 0
+local Last, LastN = {}, 0
+
+local function Distribute(Char)
+	local Children = Char:GetChildren()
+	local n = #Children
+
+	if n == LastN then
+		local Same = true
+		for i = 1, n do
+			if Children[i] ~= Last[i] then
+				Same = false
+				break
+			end
+		end
+		if Same then
+			return
+		end
+	end
+
+	Last, LastN = Children, n
+	PointCount = 0
+
+	local Index = 0
+	for i = 1, n do
+		local Tool = Children[i]
+		if Tool.ClassName == "Tool" then
 			for _, v in Tool:GetDescendants() do
 				if v.Name == "DmgPoint" then
-					table.insert(DmgPoints, v)
+					Index += 1
+					if Index > Max then
+						return
+					end
+					Write(v, Offset, Positions[Index])
+
+					if Visualizer then
+						local Parent = v.Parent
+						local ok = Parent and pcall(function()
+							return Parent.CFrame
+						end)
+						Parents[Index] = ok and Parent or false
+						PointCount = Index
+					end
 				end
 			end
 		end
 	end
-
-	return DmgPoints
 end
 
-local function DistributeAttachmentsInRectangle(Attachments, Spacing, Dimensions) -- old asfuck func
-	local NumAttachments = #Attachments
-	local xLength = Dimensions.x
-	local yLength = Dimensions.y
-	local zLength = Dimensions.z
+if Visualizer then
+	local Circles = {}
+	local Tint = Color3.fromRGB(0, 255, 0)
 
-	local HalfSizeX = (xLength - 1) * Spacing / 2
-	local HalfSizeY = (yLength - 1) * Spacing / 2
-	local HalfSizeZ = (zLength - 1) * Spacing / 2
+	local function NewCircle(i)
+		local c = Drawing.new("Circle")
+		c.Filled = true
+		c.Radius = 4
+		c.NumSides = 12
+		c.Color = Tint
+		c.Opacity = 1
+		c.Visible = false
+		Circles[i] = c
+		return c
+	end
 
-	local AttachmentIndex = 1
+	task.spawn(function()
+		local Shown = 0
 
-	for x = 0, xLength - 1 do
-		for y = 0, yLength - 1 do
-			for z = 0, zLength - 1 do
-				if AttachmentIndex <= NumAttachments then
-					local Position =
-						Vector3.new(x * Spacing - HalfSizeX, y * Spacing - HalfSizeY, z * Spacing - HalfSizeZ)
+		while true do
+			task.wait()
 
-					WritePosition(Attachments[AttachmentIndex], Position)
+			local Camera = Workspace.CurrentCamera
+			local n = PointCount
 
-					AttachmentIndex = AttachmentIndex + 1
+			for i = 1, n do
+				local c = Circles[i] or NewCircle(i)
+				local Part = Parents[i]
+
+				if Part then
+					local World = Part.Position
+						+ Part.RightVector * PX[i]
+						+ Part.UpVector * PY[i]
+						- Part.LookVector * PZ[i]
+
+					local Screen, OnScreen = Camera:WorldToScreenPoint(World)
+					if OnScreen then
+						c.Position = Vector2.new(Screen.X, Screen.Y)
+						c.Visible = true
+					else
+						c.Visible = false
+					end
 				else
-					break
+					c.Visible = false
 				end
 			end
-		end
-	end
-end
 
-local Spacing = 2.75
-local Dimensions = Vector3.new(3, 9, 2)
+			for i = n + 1, Shown do
+				Circles[i].Visible = false
+			end
+			Shown = n
+		end
+	end)
+end
 
 task.spawn(function()
 	while task.wait(0.1) do
-		PlayerCharacter = PlayerCharacters:FindFirstChild(LocalPlayer.Name) or PlayerCharacter
-
-		local DmgPoints = GetDmgPoints(PlayerCharacter)
-		if #DmgPoints > 0 then
-			DistributeAttachmentsInRectangle(DmgPoints, Spacing, Dimensions)
+		if Character.Parent ~= PlayerCharacters then
+			Character = PlayerCharacters:FindFirstChild(Name) or Character
 		end
+		Distribute(Character)
 	end
 end)
