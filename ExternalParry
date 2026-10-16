@@ -348,7 +348,7 @@ do
 	end
 
 	if not ValueOffset then
-		warn("Could not find the track inside the ActiveAnimations list, send me the lines printed below")
+		warn("Could not find the track inside the ActiveAnimations list")
 
 		if LastAnimator then
 			Dump(LastAnimator)
