@@ -1,0 +1,515 @@
+--!optimize 2
+
+--!nocheck
+--!nolint UnknownGlobal
+
+local Settings = {
+	Enabled = true,
+	Debug = false,
+
+	Range = 8,
+	Padding = 8,
+
+	Window = 0.4,
+
+	Delay = 0,
+	Chance = 100,
+}
+
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+
+local ReadU8 = memory.readu8
+local ReadU32 = memory.readu32
+local ReadU64 = memory.readu64
+local ReadF32 = memory.readf32
+local ReadString = memory.readstring
+
+local Needed = {
+	Active = "Animator::ActiveAnimations",
+	Animation = "AnimationTrack::Animation",
+	Playing = "AnimationTrack::IsPlaying",
+	Time = "AnimationTrack::TimePosition",
+	AnimationId = "Misc::AnimationId",
+	StringLength = "Misc::StringLength",
+}
+
+local Offsets = {}
+
+do
+	local Version = game:GetClientVersion()
+	local Url = "https://offsets.imtheo.lol/" .. Version .. "/offsets.txt"
+
+	for Attempt = 1, 3 do
+		local ok, Body = pcall(game.HttpGet, game, Url)
+		if ok and type(Body) == "string" then
+			local Complete = true
+
+			for Key, Name in Needed do
+				local Hex = string.match(Body, Name .. "%s*=%s*(0x%x+)")
+				local Value = Hex and tonumber(Hex)
+
+				if Value then
+					Offsets[Key] = Value
+				else
+					Complete = false
+				end
+			end
+
+			if Complete then
+				break
+			end
+		end
+		task.wait(1)
+	end
+
+	for Key, Name in Needed do
+		if not Offsets[Key] then
+			warn("Could not fetch " .. Name .. " for version " .. Version)
+
+			return
+		end
+	end
+end
+
+local ActiveOffset = Offsets.Active
+local AnimationOffset = Offsets.Animation
+local PlayingOffset = Offsets.Playing
+local TimeOffset = Offsets.Time
+local IdOffset = Offsets.AnimationId
+local LengthOffset = Offsets.StringLength
+
+local PlayerCharacters = Workspace:WaitForChild("PlayerCharacters")
+local LocalName = Players.LocalPlayer.Name
+local Own = PlayerCharacters:WaitForChild(LocalName)
+
+local function DebugWarn(Message)
+	if Settings.Debug == true then
+		warn(string.format("[%s] DEBUG: %s", os.date("%Y-%m-%d %H:%M:%S"), Message))
+	end
+end
+
+local Rangeds = {
+	"Longbow",
+	"Heavy Bow",
+	"Crossbow",
+	"Kunai",
+	"AK47",
+	"SPAS-12",
+	"RPG",
+	"BFG-50",
+	"Minigun",
+	"M249",
+	"Flamethrower",
+	"Tommy Gun",
+	"Raygun",
+}
+
+local function GetChance(Chance)
+	return math.random(1, 100) <= math.floor(Chance or 100)
+end
+
+local function Parry(Delay)
+	if Delay > 0 then
+		task.wait(Delay)
+	end
+
+	local Tool = Own:FindFirstChildOfClass("Tool")
+	if Tool and table.find(Rangeds, Tool.Name) then
+		DebugWarn(Tool.Name .. " is equipped, avoiding parry")
+
+		return
+	end
+
+	keypress(0x46)
+	task.wait()
+	keyrelease(0x46)
+end
+
+local function Valid(Pointer)
+	return Pointer >= 0x10000 and Pointer <= 0x7FFFFFFFFFFF and Pointer % 8 == 0
+end
+
+local function AddressString(Address)
+	local Length = ReadU32(Address + LengthOffset)
+	if Length == 0 or Length > 64 then
+		return nil
+	end
+
+	if Length > 15 then
+		local Pointer = ReadU64(Address)
+		if not Valid(Pointer) then
+			return nil
+		end
+
+		return ReadString(Pointer)
+	end
+
+	return ReadString(Address)
+end
+
+local function InstanceString(Object, Offset)
+	local Length = ReadU32(Object, Offset + LengthOffset)
+	if Length == 0 or Length > 64 then
+		return nil
+	end
+
+	if Length > 15 then
+		local Pointer = ReadU64(Object, Offset)
+		if not Valid(Pointer) then
+			return nil
+		end
+
+		return ReadString(Pointer)
+	end
+
+	return ReadString(Object, Offset)
+end
+
+local function TrackId(Track)
+	local Animation = ReadU64(Track + AnimationOffset)
+	if not Valid(Animation) then
+		return nil
+	end
+
+	return AddressString(Animation + IdOffset)
+end
+
+local Slashes, SlashCount = {}, 0
+
+do
+	local Melee = game.ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Assets"):WaitForChild("Melee")
+
+	for _, Inst in Melee:GetDescendants() do
+		if Inst.ClassName == "Animation" and string.match(Inst.Name, "^Slash%w*$") then
+			local Id = InstanceString(Inst, IdOffset)
+			if Id and not Slashes[Id] then
+				Slashes[Id] = true
+				SlashCount += 1
+			end
+		end
+	end
+end
+
+if SlashCount == 0 then
+	warn("No Slash animation ids found in ReplicatedStorage.Shared.Assets.Melee")
+
+	return
+end
+
+local function GetAnimator(Char)
+	local Humanoid = Char:FindFirstChildOfClass("Humanoid")
+
+	return Humanoid and Humanoid:FindFirstChildOfClass("Animator")
+end
+
+local function Hex(Value)
+	if Value >= 0 and Value < 2 ^ 53 then
+		return string.format("0x%x", Value)
+	end
+
+	return tostring(Value)
+end
+
+local MaxTracks = 64
+local ValueOffsets = { 0x10, 0x18, 0x20 }
+local Tracks = {}
+
+local function Collect(Animator, ValueOffset)
+	local Size = ReadU32(Animator, ActiveOffset + 8)
+	if Size == 0 or Size > MaxTracks then
+		return 0
+	end
+
+	local Head = ReadU64(Animator, ActiveOffset)
+	if not Valid(Head) then
+		return 0
+	end
+
+	local Count = 0
+	local Node = ReadU64(Head)
+
+	for _ = 1, Size do
+		if Node == Head or not Valid(Node) then
+			break
+		end
+
+		local Track = ReadU64(Node + ValueOffset)
+		if Valid(Track) then
+			Count += 1
+			Tracks[Count] = Track
+		end
+
+		Node = ReadU64(Node)
+	end
+
+	return Count
+end
+
+local function Calibrate(Animator)
+	for Index = 1, #ValueOffsets do
+		local ValueOffset = ValueOffsets[Index]
+		local Count = Collect(Animator, ValueOffset)
+
+		for i = 1, Count do
+			local Id = TrackId(Tracks[i])
+
+			if Id then
+				local Prefix = string.sub(Id, 1, 4)
+
+				if Prefix == "rbxa" or Prefix == "http" then
+					return ValueOffset
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
+local function ListTracks(Animator, ValueOffset)
+	local Count = Collect(Animator, ValueOffset)
+	local Flagged = 0
+
+	for i = 1, Count do
+		local Track = Tracks[i]
+		local Playing = ReadU8(Track + PlayingOffset)
+		local Position = ReadF32(Track + TimeOffset)
+
+		if Playing == 1 then
+			Flagged += 1
+		end
+
+		DebugWarn(
+			string.format(
+				"own track %s id=%s playing=%d time=%.2f",
+				Hex(Track),
+				tostring(TrackId(Track)),
+				Playing,
+				Position
+			)
+		)
+	end
+
+	return Count, Flagged
+end
+
+local function Dump(Animator)
+	local Size = ReadU32(Animator, ActiveOffset + 8)
+	local Head = ReadU64(Animator, ActiveOffset)
+
+	print(string.format("size=%d head=%s", Size, Hex(Head)))
+
+	if not Valid(Head) then
+		return
+	end
+
+	local Node = ReadU64(Head)
+
+	for _ = 1, math.min(Size, 3) do
+		if Node == Head or not Valid(Node) then
+			break
+		end
+
+		local Line = Hex(Node) .. ":"
+
+		for Word = 0, 5 do
+			Line ..= " " .. Hex(ReadU64(Node + Word * 8))
+		end
+
+		print(Line)
+
+		Node = ReadU64(Node)
+	end
+end
+
+local ValueOffset = nil
+local UseFlag = false
+
+do
+	local LastAnimator = nil
+
+	for Attempt = 1, 10 do
+		local Animator = GetAnimator(Own)
+
+		if Animator then
+			LastAnimator = Animator
+			ValueOffset = Calibrate(Animator)
+
+			if ValueOffset then
+				local _, Flagged = ListTracks(Animator, ValueOffset)
+				UseFlag = Flagged > 0
+
+				break
+			end
+		end
+
+		task.wait(0.5)
+	end
+
+	if not ValueOffset then
+		warn("Could not find the track inside the ActiveAnimations list, send me the lines printed below")
+
+		if LastAnimator then
+			Dump(LastAnimator)
+		end
+
+		return
+	end
+end
+
+DebugWarn(
+	string.format(
+		"List ready: value offset=%s, playing flag=%s, slash ids=%d",
+		Hex(ValueOffset),
+		tostring(UseFlag),
+		SlashCount
+	)
+)
+
+if not UseFlag then
+	warn("No own track had the playing flag set, ignoring it (send me the own track lines above if swings misfire)")
+end
+
+local function PositionOf(Part)
+	return Part.Position
+end
+
+local function FindRoot(Char)
+	for _, Child in Char:GetChildren() do
+		if Child.Name == "HumanoidRootPart" and pcall(PositionOf, Child) then
+			return Child
+		end
+	end
+
+	return false
+end
+
+local Cache = {}
+
+local RunService = game:GetService("RunService")
+RunService.PreModel:Connect(function()
+	local Stamp = 0
+	local OwnRoot = false
+
+	if not Settings.Enabled then
+		return
+	end
+
+	if Own.Parent ~= PlayerCharacters then
+		Own = PlayerCharacters:FindFirstChild(LocalName) or Own
+	end
+
+	if not OwnRoot or OwnRoot.Parent ~= Own then
+		OwnRoot = FindRoot(Own)
+	end
+
+	if not OwnRoot then
+		return
+	end
+
+	local OwnPosition = OwnRoot.Position
+	local HX, HY, HZ = OwnPosition.X, OwnPosition.Y, OwnPosition.Z
+
+	local Range = Settings.Range
+	local RangeSquared = Range * Range
+
+	local Reach = Range + Settings.Padding
+
+	local ReachSquared = Reach * Reach
+	local Window = Settings.Window
+
+	Stamp += 1
+
+	local Characters = PlayerCharacters:GetChildren()
+
+	for c = 1, #Characters do
+		local Char = Characters[c]
+
+		if Char == Own then
+			continue
+		end
+
+		local Entry = Cache[Char]
+		if not Entry then
+			Entry = { Root = false, Animator = false, Fired = {} }
+			Cache[Char] = Entry
+		end
+		Entry.Stamp = Stamp
+
+		local Root = Entry.Root
+		if not Root or Root.Parent ~= Char then
+			Root = FindRoot(Char)
+			Entry.Root = Root
+		end
+
+		if not Root then
+			continue
+		end
+
+		local RootPosition = Root.Position
+		local dx, dy, dz = RootPosition.X - HX, RootPosition.Y - HY, RootPosition.Z - HZ
+		local DistanceSquared = dx * dx + dy * dy + dz * dz
+
+		if DistanceSquared > ReachSquared then
+			continue
+		end
+
+		local Animator = Entry.Animator
+		if not Animator or Animator.Parent == nil then
+			Animator = GetAnimator(Char) or false
+			Entry.Animator = Animator
+		end
+
+		if not Animator then
+			continue
+		end
+
+		local Fired = Entry.Fired
+		local Count = Collect(Animator, ValueOffset)
+
+		for i = 1, Count do
+			local Track = Tracks[i]
+
+			if not UseFlag or ReadU8(Track + PlayingOffset) == 1 then
+				local Position = ReadF32(Track + TimeOffset)
+
+				if Position >= 0 and Position <= Window then
+					local Id = TrackId(Track)
+
+					if Id and Slashes[Id] then
+						if Fired[Track] ~= Stamp - 1 then
+							DebugWarn(
+								string.format(
+									"%s swung %s at %.2fs (%.1f studs)",
+									Char.Name,
+									Id,
+									Position,
+									math.sqrt(DistanceSquared)
+								)
+							)
+
+							if DistanceSquared <= RangeSquared and GetChance(Settings.Chance) then
+								task.spawn(Parry, Settings.Delay)
+							end
+						end
+
+						Fired[Track] = Stamp
+					end
+				end
+			end
+		end
+
+		for Track, Seen in Fired do
+			if Seen ~= Stamp then
+				Fired[Track] = nil
+			end
+		end
+	end
+
+	for Char, Entry in Cache do
+		if Entry.Stamp ~= Stamp then
+			Cache[Char] = nil
+		end
+	end
+end)
