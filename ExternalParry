@@ -7,10 +7,10 @@ local Settings = {
 	Enabled = true,
 	Debug = false,
 
-	Range = 8,
-	Padding = 8,
+	Range = 15,
+	Padding = 15,
 
-	Window = 0.4,
+	Window = 0.3,
 
 	Delay = 0,
 	Chance = 100,
